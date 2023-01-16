@@ -15,6 +15,9 @@ available_months = [
 ]
 
 class ModifyFrame(customtkinter.CTkFrame):
+    loaded_purchase_id = None
+    selected_product_brand = None
+    
     def __init__(self, *args, app, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -23,12 +26,9 @@ class ModifyFrame(customtkinter.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        # Years descending
-        # Months descending
-        user_dates_desc = []
+        user_dates_desc = app.data.get_purchase_dates()
 
-        categories = [ "All", "Diary", "Meat", "Bakery" ]
-        products = []
+        self.selected_purchases = []
 
         self.year_value = customtkinter.Variable(value="Select...")
         self.month_value = customtkinter.Variable(value="Select...")
@@ -64,14 +64,15 @@ class ModifyFrame(customtkinter.CTkFrame):
         self.item_list_view = ListComponent(
             master=self.item_list_component.display_view,
             app=app,
-            columns=["Category Names"],
-            rows=[ [ category ] for category in categories[1:] ],
+            columns=["Item Names"],
+            rows=[],
             height=12
         )
 
         self.load_button = customtkinter.CTkButton(
             master=left_view,
             text="LOAD",
+            command=self.load_item,
             **buttons["big"]["design"]
         )
         self.load_button.grid(row=1, column=0, sticky="wes")
@@ -119,8 +120,9 @@ class ModifyFrame(customtkinter.CTkFrame):
             master=right_view,
             app=app,
             title="CATEGORY",
-            values=categories,
-            textvariable=self.category_value
+            values=app.data.all_categories,
+            textvariable=self.category_value,
+            selection_callback=self.set_menu_entries_of_category
         )
         self.category_menu.grid(row=5, column=0)
         
@@ -129,7 +131,8 @@ class ModifyFrame(customtkinter.CTkFrame):
             app=app,
             title="AMOUNT (in units)",
             placeholder="Enter amount...",
-            textvariable=self.amount_value
+            textvariable=self.amount_value,
+            change_callback=self.calculate_price_on_amount_change
         )
         self.amount_entry.grid(row=5, column=1)
         
@@ -137,8 +140,9 @@ class ModifyFrame(customtkinter.CTkFrame):
             master=right_view,
             app=app,
             title="PRODUCT",
-            values=products,
-            textvariable=self.product_value
+            values=[],
+            textvariable=self.product_value,
+            selection_callback=self.pick_product_entry
         )
         self.product_menu.grid(row=6, column=0)
 
@@ -155,10 +159,10 @@ class ModifyFrame(customtkinter.CTkFrame):
         )
         self.cost_label.grid(row=0, column=0)
         
-        self.cost_default_text = "Please enter AMOUNT first!"
+        self.cost_text = customtkinter.Variable(value="Please enter AMOUNT first!")
         self.cost_result_label = customtkinter.CTkLabel(
             master=self.cost_frame,
-            text=self.cost_default_text,
+            textvariable=self.cost_text,
             wraplength=100,
             **labels["small_text"]["design"]
         )
@@ -181,10 +185,120 @@ class ModifyFrame(customtkinter.CTkFrame):
         )
         self.save_button.grid(row=8, column=1)
 
+        # Show entries of picked date
+        self.filter_item_list()
 
-    def filter_item_list(self, compound_date):
-        print("ITEM SAVINGS", compound_date)
-        month, year = compound_date.split()
+    def filter_item_list(self, compound_date=None):
+        month, year = (compound_date or self.item_list_component.category_menu.get()).split()
 
-        # Filter items that have corresponding month and year
-        self.item_list_view
+        self.selected_purchases = self.app.data.get_month_year_purchases(month, year)
+        selected_product_ids = [ selected_purchase[2] for selected_purchase in self.selected_purchases ]
+        self.selected_product_names = [
+            self.app.data.get_product_brand_from_id(selected_product_id)[1] for selected_product_id in selected_product_ids
+        ]
+
+        self.item_list_view.put_entries(self.selected_product_names)
+
+        # Year, Month, Amount | Category, ProductName
+
+    def load_item(self):
+        brand_name = self.item_list_view.selection()[0]
+
+        if brand_name == None:
+            return
+
+        purchase_index = self.selected_product_names.index(brand_name)
+        purchase_year, purchase_month, product_id, unit_amount, purchase_id = self.selected_purchases[purchase_index]
+
+        product_brand = self.app.data.get_product_brand_from_id(product_id)
+        product_name, product_category = self.app.data.get_product_type_from_id(product_brand[2])
+
+        self.loaded_purchase_id = purchase_id
+        self.year_value.set(purchase_year)
+        self.month_value.set(purchase_month)
+        self.category_value.set(product_category)
+        self.product_value.set(brand_name)
+        self.amount_value.set(unit_amount)
+
+        self.load_button.configure(text="UNLOAD", command=self.unload_item)
+
+    def reset_input_values(self):
+        self.year_value.set("Select...")
+        self.month_value.set("Select...")
+        self.category_value.set("Select...")
+        self.product_value.set("Select...")
+        self.amount_value.set("Select...")
+
+    def unload_item(self):
+        self.loaded_purchase_id = None
+        self.reset_input_values()
+
+        self.load_button.configure(text="LOAD", command=self.load_item)
+
+
+    def set_menu_entries_of_category(self, category):
+        if category == "Select...":
+            return
+        
+        self.product_brand_entries = self.app.data.get_product_brands_from_category(category)
+        product_brand_names = [ product_brand_entry[1] for product_brand_entry in self.product_brand_entries ]
+
+        self.product_menu.option_menu.configure(values=product_brand_names)
+
+    def pick_product_entry(self, product_brand):
+        for product_brand_entry in self.product_brand_entries:
+            if product_brand_entry[1] == product_brand:
+                self.selected_product_brand = product_brand_entry
+
+                try:
+                    unit_price = self.selected_product_brand[3]
+                    unit_amount = int(self.amount_value.get())
+                    self.calculate_price(unit_amount, unit_price)
+                except:
+                    pass
+                finally:
+                    break
+
+    def calculate_price_on_amount_change(self):
+        if self.selected_product_brand == None:
+            return
+        
+        try:
+            unit_price = self.selected_product_brand[3]
+            unit_amount = int(self.amount_value.get())
+            self.calculate_price(unit_amount, unit_price)
+        except:
+            return
+
+    def calculate_price(self, unit_amount, unit_price):
+        price = unit_amount * unit_price
+        self.cost_text.set(price)
+
+    def delete_entry(self):
+        if self.loaded_purchase_id == None:
+            return
+        
+        self.app.data.delete_purchase_by_id(self.loaded_purchase_id)
+        self.filter_item_list()
+        self.reset_input_values()
+
+    def insert_or_update_purchase(self):
+        if self.selected_product_brand == None:
+            return
+        is_insert = self.loaded_purchase_id == None
+
+        try:
+            year = self.year_value.get()
+            month = self.month_value.get()
+            amount = self.amount_value.get()
+            product_id = self.selected_product_brand[0]
+
+            if is_insert:
+                self.app.data.create_purchase_entry(year, month, product_id, amount)
+            else:
+                self.app.data.update_purchase_entry(self.loaded_purchase_id, year, month, product_id, amount)
+
+            self.filter_item_list()
+            self.reset_input_values()
+        except:
+            print("INSERT or UPDATE error occured!")

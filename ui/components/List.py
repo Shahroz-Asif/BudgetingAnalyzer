@@ -16,3 +16,11 @@ class ListComponent(ttk.Treeview):
             self.insert(parent="", index=i, values=rows[i])
 
         self.grid(row=0, column=0, columnspan=2, sticky="wes")
+
+    def put_entries(self, new_items):
+        old_items = self.get_children()
+        for previous_item in old_items:
+            self.delete(previous_item)
+        
+        for i in range(len(new_items)):
+            self.insert(parent="", index=i, values=new_items[i])
