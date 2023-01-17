@@ -1,3 +1,4 @@
+import pyodbc
 from tkinter.filedialog import askopenfilename
 
 from ui.config import constants
@@ -64,43 +65,41 @@ class Data:
 
         try:
             # Try creating connection with DESCRIPTIVE database
-            pass
-
-            self.descriptive_connection = 0
-            self.descriptive_cursor = 0
+            self.descriptive_connection = pyodbc.connect(
+                r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+                r"DBQ={./DESCRIPTIVE.accdb};"
+            )
+            self.descriptive_cursor = self.descriptive_connection.cursor()
             self.app.state.descriptive_opened = True
         except:
-            # Show dialogue that an error has occured
-
             pass
 
         try:
             # Try creating connection with INTERNAL database
-            pass
-
-            self.purchases_connection = 0
-            self.purchases_cursor = 0
+            self.purchases_connection = pyodbc.connect(
+                r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+                r"DBQ={./INTERNAL.accdb};"
+            )
+            self.purchases_cursor = self.purchases_connection.cursor()
             self.app.state.internal_opened = True
         except:
-            # Show dialogue that an error has occured
             pass
 
         # Caches all descriptive data
-        self.update_descriptive_data()
+        self.cache_descriptive_data()
 
     def pick_purchases_database(self):
         database_filetypes = (("Microsoft Access Database", ".accdb"), ("Microsoft Access Database Legacy", ".mdb"))
-        some_string = askopenfilename(filetypes=database_filetypes)
+        external_database_path = askopenfilename(filetypes=database_filetypes)
 
-        # Get full path of internal database
-        # Try forming connection
-        # Check if it contains valid columns
-        # Store connection
+        self.app.state.purchases_database = external_database_path
+        self.purchases_connection = pyodbc.connect(
+            r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+            rf"DBQ={external_database_path};"
+        )
+        self.purchases_cursor = self.purchases_connection.cursor()
 
-        self.app.state.purchases_database = some_string
-        print(self.app.state.purchases_database)
-
-    def update_descriptive_data(self):
+    def cache_descriptive_data(self):
         self.get_category_entries()
         self.get_product_type_entries()
         self.get_product_brand_entries()
@@ -123,7 +122,7 @@ class Data:
         self.all_product_brands = [ product_entry[0] for product_entry in product_brand_entries ]
         return self.all_product_brands
 
-    def get_month_year_purchases(self, month, year):
+    def get_purchases_on_date(self, month, year):
         self.purchases_cursor.execute(f"SELECT * FROM Purchases WHERE PurchaseMonth='{month}' AND PurchaseYear={year}")
         data = self.purchases_cursor.fetchall()
         print(data, "\t Purchase Table Entries")
@@ -145,9 +144,29 @@ class Data:
         dates = [ (f"{month} {year}" for month in months) for year in years ]
         return dates
     
-    def delete_purchase_by_id(self, id):
-        self.purchases_cursor.execute(f"DELETE FROM Purchases WHERE PurchaseID = {id}")
-        self.purchases_cursor.commit()
+    def get_purchases_on_year(self, year):
+        self.purchases_cursor.execute(f"SELECT * FROM Purchases WHERE PurchaseYear={year}")
+        data = self.purchases_cursor.fetchall()
+        print(data, "\t Purchase Table Entries")
+
+        return data
+    
+    def get_purchases_of_item(self, product_name):
+        for product_brand in self.all_product_brands:
+            if product_brand[1] == product_name:
+                self.purchases_cursor.execute(f"SELECT * FROM Purchases WHERE ProductID={product_brand[0]} ORDER BY PurchaseYear ASC, PurchaseMonth ASC")
+                product_purchases = self.purchases_cursor.fetchall()
+                print(product_purchases, "\t Purchase Table Entries")
+
+                return product_purchases
+            
+    def get_products_of_user(self):
+        self.purchases_cursor.execute(f"SELECT ProductID FROM Purchases")
+        product_ids = set([ purchase[0] for purchase in self.purchases_cursor.fetchall() ])
+        product_names = [ self.get_product_brand_from_id(product_id)[1] for product_id in product_ids ] # type: ignore
+
+        return product_names
+
 
     def create_purchase_entry(self, purchase_year, purchase_month, product_id, unit_amount):
         self.purchases_cursor.execute(
@@ -161,6 +180,10 @@ class Data:
             f"UPDATE Purchases SET PurchaseYear = {purchase_year}, PurchaseMonth = '{purchase_month}', ProductID = {product_id}, UnitAmount = {unit_amount} WHERE PurchaseID = {purchase_id}"
         )
         self.purchases_cursor.commit()
+
+    def delete_purchase_by_id(self, id):
+        self.purchases_cursor.execute(f"DELETE FROM Purchases WHERE PurchaseID = {id}")
+        self.purchases_cursor.commit()
     
     def get_product_brand_from_id(self, id):
         for product_brand_entry in self.all_product_brands:
@@ -172,13 +195,17 @@ class Data:
             if product_type_entry[0] == id:
                 return product_type_entry
 
-    def get_product_brands_from_category(self, category):
+    def get_product_brands_of_category(self, category):
         category_product_type_ids = [
-            product_type_entry[0] for product_type_entry in self.all_product_types if product_type_entry[1] == category
+            product_type_entry[0]
+            for product_type_entry in self.all_product_types
+            if product_type_entry[1] == category
         ]
 
         category_product_brands = [
-            product_brand_entry for product_brand_entry in self.all_product_brands if product_brand_entry[2] in category_product_type_ids
+            product_brand_entry
+            for product_brand_entry in self.all_product_brands
+            if product_brand_entry[2] in category_product_type_ids
         ]
 
         return category_product_brands

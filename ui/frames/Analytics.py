@@ -14,8 +14,6 @@ class AnalyticsFrame(customtkinter.CTkFrame):
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        categories = [ "All", "Diary", "Meat", "Bakery" ]
-
         self.budget_splitview = SplitviewComponent(master=self, app=app)
 
         self.general_trend_component = DisplayComponent(
@@ -23,6 +21,7 @@ class AnalyticsFrame(customtkinter.CTkFrame):
             app=app,
             text="GENERAL TREND",
             values=categories,
+            filter_label="Date",
             filter_callback=self.filter_item_list
         )
         
