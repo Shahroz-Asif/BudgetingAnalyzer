@@ -15,7 +15,10 @@ class SpendingsFrame(customtkinter.CTkFrame):
         self.grid_rowconfigure(0, weight=1)
 
         user_dates_desc = app.data.get_purchase_dates()
-        user_years_desc = set([ user_date.split()[1] for user_date in user_dates_desc ])
+        user_years_desc = list(set([ int(user_date.split()[1]) for user_date in user_dates_desc ]))
+        user_years_desc.sort()
+        user_years_desc.reverse()
+        user_years_desc = [ str(year) for year in user_years_desc ]
 
         self.spendings_splitview = SplitviewComponent(master=self, app=app)
 
@@ -37,24 +40,28 @@ class SpendingsFrame(customtkinter.CTkFrame):
             filter_callback=self.filter_yearly_spending
         )
 
-        self.item_trends_graph = GraphComponent(
+        self.category_spending_graph = GraphComponent(
             master=self.category_spending_component.display_view,
             app=app
         )
 
-        self.category_trends_graph = GraphComponent(
+        self.yearly_spending_graph = GraphComponent(
             master=self.yearly_spending_component.display_view,
             app=app
         )
 
-    def get_category_data_for(self, month, year):
+        self.filter_category_spending(user_dates_desc[0])
+        self.filter_yearly_spending(user_years_desc[0])
+
+    def filter_category_spending(self, compound_date):
+        month, year = compound_date.split()
         purchases = self.app.data.get_purchases_on_date(f"{utils.get_month_index(month)}", year)
 
         category_costs = {}
 
         for purchase in purchases:
             product_brand = self.app.data.get_product_brand_from_id(purchase[2])
-            product_type = self.app.get_product_type_from_id(product_brand[2])
+            product_type = self.app.data.get_product_type_from_id(product_brand[2])
             category = product_type[1]
 
             product_cost = purchase[3] * product_brand[3]
@@ -63,29 +70,24 @@ class SpendingsFrame(customtkinter.CTkFrame):
             else:
                 category_costs[category] += product_cost
 
-        chart_fields = [ (category, cost) for category, cost in category_costs.items() ]
-        print("CATEGORY COSTS", chart_fields)
-
-    def filter_category_spending(self, compound_date):
-        month, year = compound_date.split()
-        category_data = self.get_category_data_for(month, year)
-        # Create pie chart
-
-        # Generate a new Graph widget and replace the placement of current with this one
+        chart_labels = [ category for category in category_costs.keys() ]
+        chart_sizes = [ size for size in category_costs.values() ]
+        self.category_spending_graph.plot_pie(chart_labels, chart_sizes)
     
     def filter_yearly_spending(self, year):
         purchases = self.app.data.get_purchases_on_year(year)
 
-        monthly_costs = []
+        monthly_costs = {}
         for purchase in purchases:
             product_brand = self.app.data.get_product_brand_from_id(purchase[2])
             product_cost = purchase[3] * product_brand[3]
             
-            purchase_month_index = utils.get_month_index(purchase[1])
-            if purchase_month_index > len(monthly_costs):
+            purchase_month_index = int(purchase[1])
+            if purchase_month_index not in monthly_costs:
                 monthly_costs[purchase_month_index] = product_cost
             else:
                 monthly_costs[purchase_month_index] += product_cost
 
-        chart_fields = [ (i, monthly_costs[i]) for i in range(len(monthly_costs)) ]
-        print("YEARLY COSTS", chart_fields)
+        chart_labels = [ category for category in monthly_costs.keys() ]
+        chart_sizes = [ size for size in monthly_costs.values() ]
+        self.yearly_spending_graph.plot_bar(chart_labels, chart_sizes)
